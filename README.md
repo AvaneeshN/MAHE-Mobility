@@ -7,7 +7,6 @@
 ![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=for-the-badge&logo=python&logoColor=white)
 ![PyTorch](https://img.shields.io/badge/PyTorch-2.0+-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white)
 ![OpenCV](https://img.shields.io/badge/OpenCV-4.8+-5C3EE8?style=for-the-badge&logo=opencv&logoColor=white)
-![License](https://img.shields.io/badge/License-MIT-22C55E?style=for-the-badge)
 ![Status](https://img.shields.io/badge/Status-Active-38BDF8?style=for-the-badge)
 
 ---
@@ -409,10 +408,10 @@ plot_bev(grid, detections)
 
 | Name | Role |
 |------|------|
-| Member 1 | Perception & Object Detection |
-| Member 2 | Camera Geometry & Calibration |
-| Member 3 | Depth Estimation & 3D Projection |
-| Member 4 | Occupancy Grid & Fusion |
+| Avaneesh Nair | Perception & Object Detection |
+| Alankryt Sharma | Camera Geometry & Calibration |
+| Snigdha Sanjay | Depth Estimation & 3D Projection |
+| Divya Vhavle | Occupancy Grid & Fusion |
 
 ---
 
@@ -420,7 +419,7 @@ plot_bev(grid, detections)
 
 This project uses the **nuScenes** dataset provided by the organizers.
 
-> 📁 **Dataset Drive Link:** *(provided separately by organizers)*
+> 📁 **Dataset Drive Link:** *https://drive.google.com/drive/folders/1g5KgxG0p8-MmTiXkNtCpoYSIkdBQprEm*
 
 Once downloaded, place the data as follows:
 
