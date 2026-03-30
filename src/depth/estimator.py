@@ -34,11 +34,11 @@ class DepthEstimator:
 
         depth = prediction.cpu().numpy()
 
-        # 🔥 IMPORTANT: Convert relative depth → pseudo-metric
-        depth = 15.0 / (depth + 1e-6)
+        # 🔥 IMPROVED DEPTH SCALING
+        depth = 1.0 / (depth + 1e-6)
+        depth = depth * 20
 
-        # Clip to reasonable range
-        depth = np.clip(depth, 0.5, 50.0)
+        depth = np.clip(depth, 1.0, 50.0)
 
         return depth
 
@@ -46,4 +46,3 @@ class DepthEstimator:
         depth_norm = cv2.normalize(depth, None, 0, 255, cv2.NORM_MINMAX)
         depth_norm = depth_norm.astype(np.uint8)
         return cv2.applyColorMap(depth_norm, cv2.COLORMAP_INFERNO)
-

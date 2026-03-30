@@ -2,7 +2,7 @@ import numpy as np
 
 
 class OccupancyGrid:
-    def __init__(self, size=20.0, resolution=0.1):
+    def __init__(self, size=40.0, resolution=0.1):  # 🔥 increased size
         self.size = size
         self.res = resolution
         self.N = int(size / resolution)
