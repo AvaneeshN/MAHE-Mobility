@@ -207,46 +207,53 @@ Across multiple frames, we compensate for the camera's own movement (**ego-motio
 ```
 MAHE-Mobility/
 │
-├── bev_env/                    # virtual environment (git-ignored)
-│
-├── configs/
-│   └── configs.yaml             # camera params, grid size, model paths
-│
 ├── data/
-│   ├── raw/                    # original images (git-ignored)
-│   ├── processed/              # preprocessed inputs (git-ignored)
-│   └── nuscenes/               # extracted nuScenes dataset (git-ignored)
+│   ├── nuscenes/               # nuScenes dataset root (git-ignored)
+│   │   └── v1.0-mini/          # extracted dataset goes here
+│   └── raw/                    # any custom images/videos (git-ignored)
 │
 ├── notebooks/
-│
-├── outputs/                    # saved grids and results (git-ignored)
+│   └── bev_pipeline.ipynb      # Google Colab notebook (end-to-end run)
 │
 ├── src/
-│   ├── data/                   # data loading and preprocessing
-│   ├── depth/
-│   │   └── estimator.py        # MiDaS depth estimation
+│   ├── __init__.py
+│   ├── pipeline.py             # BEVPipeline class + main() entry point
+│   ├── run.py                  # CLI entry point
+│   ├── perception/
+│   │   └── detector.py         # YOLOv8 wrapper
 │   ├── geometry/
-│   │   ├── camera.py           # intrinsics, extrinsics, projection
-│   │   └── homography.py       # homography-based BEV
+│   │   └── camera.py           # Intrinsics, extrinsics, projection
+│   ├── depth/
+│   │   └── estimator.py        # MiDaS depth estimation (affine calibration)
 │   ├── mapping/
 │   │   ├── point_cloud.py      # 3D unprojection
-│   │   ├── occupancy_grid.py   # grid construction + Bayesian update
+│   │   ├── occupancy_grid.py   # Grid construction + Bayesian update
 │   │   
-│   ├── perception/
-│   │   ├── detector.py         # YOLOv8 wrapper
-│   │   
-│   ├── utils/
-│   │   ├── visualize.py        # plotting BEV maps
-│   │   └── calibration.py      # camera calibration tools
-│   ├── pipeline.py             # end-to-end pipeline orchestration
-│   └── run.py                  # ← main entry point
+│   ├── data/
+│   │   └── nuscenes_loader.py  # nuScenes data loader
+│   └── utils/
+│       ├── visualize.py        # Plotting BEV maps
+│       ├── metrics.py          # IoU + DW-error evaluation
+│       └── calibration.py      # Camera calibration tools
 │
 ├── tests/
+│   ├── test_geometry.py
+│   ├── test_depth.py
+│   ├── test_point_cloud.py
+│   ├── test_occupancy.py
+│   ├── test_detection_bev.py
+│   └── test_fusion_bev.py
 │
-├── README.md
+├── configs/
+│   └── configs.yaml            # Camera params, grid size, model paths
+│
+├── outputs/                    # Saved BEV images (git-ignored)
+│
+├── .gitignore
 ├── requirements.txt
-└── setup.py
+└── README.md
 ```
+
 
 ---
 
