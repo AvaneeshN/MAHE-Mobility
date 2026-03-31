@@ -330,17 +330,17 @@ data/
 
 ### Run the Full Pipeline (nuScenes)
 
-\`\`\`bash
+```bash
 python src/run.py
-\`\`\`
+```
 
 This processes 10 samples by default and saves BEV output images to `outputs/`.
 
 To process more samples:
 
-\`\`\`bash
+```bash
 python src/run.py --samples 15
-\`\`\`
+```
 
 ---
 
