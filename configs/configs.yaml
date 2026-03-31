@@ -15,8 +15,8 @@ models:
   depth: MiDaS_small
 
 nuscenes:
-  dataroot: data/nuscenes
-  version: v1.0-mini
+  dataroot: "data/nuscenes"      # relative path — works on any machine
+  version: "v1.0-mini"
 
 depth:
   scale_factor: 20.0

@@ -1,8 +1,9 @@
-# src/pipeline.py
+# src/pipeline.py - Final Version with All Improvements
 
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
+from collections import deque
 import yaml
 
 from src.depth.estimator import DepthEstimator
@@ -18,98 +19,119 @@ def load_config(path="configs/configs.yaml"):
         return yaml.safe_load(f)
 
 
-def run_single_frame(image, camera, depth_estimator, detector, cfg):
-    """
-    Fixed BEV pipeline - works in camera frame (X=right, Z=forward).
-    This version resolved the occupancy grid coordinate issues.
-    Returns (bev_grid, depth_map, detections)
-    """
+class BEVPipeline:
+    def __init__(self, cfg):
+        self.cfg = cfg
+        self.depth_estimator = DepthEstimator(
+            model_type=cfg["models"]["depth"],
+            scale_factor=cfg["depth"]["scale_factor"],
+            min_depth=cfg["depth"]["min_depth"],
+            max_depth=cfg["depth"]["max_depth"],
+        )
+        self.detector = ObjectDetector(model_name=cfg["models"]["yolo"])
 
-    # 1. Depth estimation
-    depth = depth_estimator.predict(image)
+        # Temporal fusion: keep last N frames for denser map
+        self.frame_history = deque(maxlen=4)
 
-    # 2. Object detection
-    detections = detector.detect(image)
+    def process_frame(self, image, K, camera_height=1.51):
+        camera = Camera(fx=K[0,0], fy=K[1,1], cx=K[0,2], cy=K[1,2])
+        camera.K = K
 
-    # 3. Point cloud directly in camera frame
-    points_cam = depth_to_point_cloud(depth, camera)
+        # Depth + Detection
+        depth = self.depth_estimator.predict(image)
+        detections = self.detector.detect(image)
 
-    # 4. Filter points in camera frame (simple and effective)
-    # Camera frame: X = right (lateral), Y = down, Z = forward
-    mask = (points_cam[:, 2] > 1.0) & (points_cam[:, 2] < 40.0) & \
-           (np.abs(points_cam[:, 0]) < 20.0)
-    points_cam = points_cam[mask]
+        # Point cloud in camera frame
+        points_cam = depth_to_point_cloud(depth, camera)
 
-    # 5. Build occupancy grid using camera-frame points (X-Z plane)
-    grid_cfg = cfg["grid"]
-    grid = OccupancyGrid(size=grid_cfg["size"], resolution=grid_cfg["resolution"])
-    grid.fill(points_cam)           # ← Now using camera-frame points
-    grid.smooth(kernel_size=5)
+        # Better filtering using camera height (Improvement 2)
+        # Remove points that are too high or too low relative to camera
+        mask = (points_cam[:, 2] > 0.5) & (points_cam[:, 2] < 50.0) & \
+               (np.abs(points_cam[:, 0]) < 25.0) & \
+               (np.abs(points_cam[:, 1]) < camera_height + 2.0)   # Y = height
+        points_cam = points_cam[mask]
 
-    # 6. Overlay detected objects onto the grid
-    for det in detections:
-        x1, y1, x2, y2, label, conf = det
-        if label not in ["car", "truck", "bus", "motorcycle", "person"]:
-            continue
+        # Build grid
+        grid_cfg = self.cfg["grid"]
+        grid = OccupancyGrid(size=grid_cfg["size"], resolution=grid_cfg["resolution"])
+        grid.fill(points_cam)
+        grid.smooth(kernel_size=7)
 
-        # Bottom-centre of bounding box ≈ ground contact point
-        u = int((x1 + x2) / 2)
-        v = int(y2)
-        u = np.clip(u, 0, depth.shape[1] - 1)
-        v = np.clip(v, 0, depth.shape[0] - 1)
+        # Overlay detections with labels
+        object_positions = []
+        for det in detections:
+            x1, y1, x2, y2, label, conf = det
+            if label not in ["car", "truck", "bus", "motorcycle", "person"]:
+                continue
 
-        Z = float(depth[v, u])
-        if Z <= 0 or Z > cfg["depth"].get("max_depth", 40.0):
-            continue
+            u = int((x1 + x2) / 2)
+            v = int(y2)
+            u = np.clip(u, 0, depth.shape[1] - 1)
+            v = np.clip(v, 0, depth.shape[0] - 1)
 
-        # Unproject to camera coordinates (X, Z)
-        X = (u - camera.cx) * Z / camera.fx
+            Z = float(depth[v, u])
+            if Z <= 0.5 or Z > 50.0:
+                continue
 
-        # Project onto grid (X lateral, Z forward)
-        col, row = grid.world_to_grid(np.array([X]), np.array([Z]))
-        col, row = int(col[0]), int(row[0])
+            fx = K[0, 0]
+            cx = K[0, 2]
+            X = (u - cx) * Z / fx
 
-        # Paint a small blob (7x7) for visibility
-        for dx in range(-3, 4):
-            for dy in range(-3, 4):
-                r, c = row + dy, col + dx
-                if 0 <= r < grid.N and 0 <= c < grid.N:
-                    grid.grid[r, c] = 1.0
+            col, row = grid.world_to_grid(np.array([X]), np.array([Z]))
+            col, row = int(col[0]), int(row[0])
 
-    return grid, depth, detections
+            # Larger blob for better visibility
+            for dx in range(-5, 6):
+                for dy in range(-5, 6):
+                    r, c = row + dy, col + dx
+                    if 0 <= r < grid.N and 0 <= c < grid.N:
+                        grid.grid[r, c] = 1.0
+
+            object_positions.append((col, row, label, conf))
+
+        # Temporal fusion (Improvement 1)
+        self.frame_history.append((grid.grid.copy(), object_positions))
+        if len(self.frame_history) > 1:
+            fused_grid = np.maximum.reduce([g for g, _ in self.frame_history])
+            grid.grid = fused_grid
+
+        return grid, depth, detections, object_positions
 
 
-def visualize(image, depth, grid, detections, save_path=None):
-    fig, axes = plt.subplots(1, 3, figsize=(18, 6))
+def visualize(image, depth, grid, detections, object_positions, save_path=None):
+    fig, axes = plt.subplots(1, 3, figsize=(20, 7))
 
-    # Panel 1: Camera image with detections
+    # Camera View
     img_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
     axes[0].imshow(img_rgb)
     for det in detections:
         x1, y1, x2, y2, label, conf = det
-        axes[0].add_patch(plt.Rectangle(
-            (x1, y1), x2-x1, y2-y1,
-            fill=False, edgecolor='lime', linewidth=2
-        ))
-        axes[0].text(x1, y1-5, f"{label} {conf:.2f}",
-                     color='lime', fontsize=7, weight='bold')
+        axes[0].add_patch(plt.Rectangle((x1, y1), x2-x1, y2-y1,
+                          fill=False, edgecolor='lime', linewidth=2.5))
+        axes[0].text(x1, y1-8, f"{label} {conf:.2f}",
+                     color='lime', fontsize=9, weight='bold')
     axes[0].set_title("Camera View + Detections")
     axes[0].axis("off")
 
-    # Panel 2: Depth map
+    # Depth Map
     axes[1].imshow(depth, cmap='plasma')
     axes[1].set_title("Depth Map (metres)")
     axes[1].axis("off")
 
-    # Panel 3: BEV occupancy grid
+    # BEV Grid with labels
     axes[2].imshow(grid.grid, cmap='inferno', origin='lower')
-    axes[2].set_title("BEV Occupancy Grid (Top-Down)")
-    axes[2].set_xlabel("X (lateral)")
-    axes[2].set_ylabel("Z (forward)")
+    axes[2].set_title("BEV Occupancy Grid (with labels)")
+    axes[2].set_xlabel("X lateral (cells)")
+    axes[2].set_ylabel("Z forward (cells)")
+
+    # Draw labels on BEV
+    for col, row, label, conf in object_positions:
+        axes[2].text(col, row, f"{label}\n{conf:.2f}", color='white',
+                     fontsize=10, ha='center', va='center', weight='bold')
 
     plt.tight_layout()
     if save_path:
-        plt.savefig(save_path, dpi=150, bbox_inches="tight")
+        plt.savefig(save_path, dpi=200, bbox_inches="tight")
         print(f"Saved → {save_path}")
     plt.show()
 
@@ -117,46 +139,27 @@ def visualize(image, depth, grid, detections, save_path=None):
 def main():
     cfg = load_config()
 
-    # Load nuScenes dataset
     loader = NuScenesLoader(
         dataroot=cfg["nuscenes"]["dataroot"],
         version=cfg["nuscenes"]["version"]
     )
 
-    # Load models
-    depth_estimator = DepthEstimator(
-        model_type=cfg["models"]["depth"],
-        scale_factor=cfg["depth"]["scale_factor"],
-        min_depth=cfg["depth"]["min_depth"],
-        max_depth=cfg["depth"]["max_depth"],
-    )
-    detector = ObjectDetector(model_name=cfg["models"]["yolo"])
+    pipeline = BEVPipeline(cfg)
 
-    # Run on first 5 samples
-    for i in range(min(5, len(loader))):
-        print(f"\n--- Sample {i+1} ---")
+    for i in range(min(10, len(loader))):
+        print(f"\n--- Processing Sample {i+1} ---")
         sample = loader.get_sample(i)
 
         image = sample["image"]
         K = sample["intrinsic"]
 
-        # Simplified camera - only intrinsics needed (staying in camera frame)
-        camera = Camera(
-            fx=K[0, 0], fy=K[1, 1],
-            cx=K[0, 2], cy=K[1, 2]
-            # R and t removed - we no longer transform to world frame
-        )
+        grid, depth, detections, obj_positions = pipeline.process_frame(image, K, camera_height=1.51)
 
-        grid, depth, detections = run_single_frame(
-            image, camera, depth_estimator, detector, cfg
-        )
-
-        print(f"Detections: {len(detections)}")
-        print(f"Grid occupied cells: {(grid.grid > 0.5).sum()}")
+        print(f"Detections: {len(detections)} | Occupied cells: {(grid.grid > 0.4).sum()}")
 
         visualize(
-            image, depth, grid, detections,
-            save_path=f"outputs/bev_sample_{i}.png"
+            image, depth, grid, detections, obj_positions,
+            save_path=f"outputs/bev_sample_{i:02d}.png"
         )
 
 
