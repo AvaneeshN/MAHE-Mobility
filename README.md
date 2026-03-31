@@ -328,19 +328,19 @@ data/
 
 ## 🚀 Usage
 
-Make sure your `bev_env` virtual environment is active before running any commands.
+### Run the Full Pipeline (nuScenes)
 
-### Run on a Single Image
+\`\`\`bash
+python src/run.py
+\`\`\`
 
-```bash
-python src/run.py --input data/raw/street.jpg --output outputs/
-```
+This processes 10 samples by default and saves BEV output images to `outputs/`.
 
-### Calibrate Your Camera
+To process more samples:
 
-```bash
-python src/utils/calibration.py --images data/calibration/ --pattern 8x6
-```
+\`\`\`bash
+python src/run.py --samples 15
+\`\`\`
 
 ---
 
