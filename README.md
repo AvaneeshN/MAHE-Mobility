@@ -7,7 +7,6 @@
 ![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=for-the-badge&logo=python&logoColor=white)
 ![PyTorch](https://img.shields.io/badge/PyTorch-2.0+-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white)
 ![OpenCV](https://img.shields.io/badge/OpenCV-4.8+-5C3EE8?style=for-the-badge&logo=opencv&logoColor=white)
-![Status](https://img.shields.io/badge/Status-Active-38BDF8?style=for-the-badge)
 
 ---
 
@@ -206,54 +205,47 @@ Across multiple frames, we compensate for the camera's own movement (**ego-motio
 ## 📁 Project Structure
 
 ```
-bev-mapper/
+MAHE-Mobility/
 │
-├── data/
-│   ├── raw/                    # original images/videos (git-ignored)
-│   ├── processed/              # preprocessed inputs (git-ignored)
-│   └── .gitkeep
-│
-├── notebooks/
-│   ├── 01_camera_calibration.ipynb
-│   ├── 02_depth_exploration.ipynb
-│   └── 03_bev_visualization.ipynb
-│
-├── src/
-│   ├── __init__.py
-│   ├── perception/
-│   │   ├── detector.py         # YOLOv8 wrapper
-│   │   └── segmentor.py        # SegFormer wrapper
-│   ├── geometry/
-│   │   ├── camera.py           # Intrinsics, extrinsics, projection
-│   │   └── homography.py       # Homography-based BEV
-│   ├── depth/
-│   │   └── estimator.py        # MiDaS depth estimation
-│   ├── mapping/
-│   │   ├── point_cloud.py      # 3D unprojection
-│   │   ├── occupancy_grid.py   # Grid construction + Bayesian update
-│   │   └── fusion.py           # Temporal + multi-view fusion
-│   └── utils/
-│       ├── visualize.py        # Plotting BEV maps
-│       └── calibration.py      # Camera calibration tools
-│
-├── tests/
-│   ├── test_geometry.py
-│   ├── test_depth.py
-│   └── test_occupancy_grid.py
+├── bev_env/                    # virtual environment (git-ignored)
 │
 ├── configs/
-│   └── config.yaml             # Camera params, grid size, model paths
+│   └── configs.yaml             # camera params, grid size, model paths
 │
-├── outputs/                    # Results, saved grids (git-ignored)
+├── data/
+│   ├── raw/                    # original images (git-ignored)
+│   ├── processed/              # preprocessed inputs (git-ignored)
+│   └── nuscenes/               # extracted nuScenes dataset (git-ignored)
 │
-├── .github/
-│   └── workflows/
-│       └── ci.yml              # Automated testing on push
+├── notebooks/
 │
-├── .gitignore
+├── outputs/                    # saved grids and results (git-ignored)
+│
+├── src/
+│   ├── data/                   # data loading and preprocessing
+│   ├── depth/
+│   │   └── estimator.py        # MiDaS depth estimation
+│   ├── geometry/
+│   │   ├── camera.py           # intrinsics, extrinsics, projection
+│   │   └── homography.py       # homography-based BEV
+│   ├── mapping/
+│   │   ├── point_cloud.py      # 3D unprojection
+│   │   ├── occupancy_grid.py   # grid construction + Bayesian update
+│   │   
+│   ├── perception/
+│   │   ├── detector.py         # YOLOv8 wrapper
+│   │   
+│   ├── utils/
+│   │   ├── visualize.py        # plotting BEV maps
+│   │   └── calibration.py      # camera calibration tools
+│   ├── pipeline.py             # end-to-end pipeline orchestration
+│   └── run.py                  # ← main entry point
+│
+├── tests/
+│
+├── README.md
 ├── requirements.txt
-├── setup.py
-└── README.md
+└── setup.py
 ```
 
 ---
@@ -273,13 +265,26 @@ git clone https://github.com/AvaneeshN/MAHE-Mobility.git
 cd MAHE-Mobility
 ```
 
-### 2. Create a Virtual Environment
+### 2. Create the Virtual Environment
 
 ```bash
-python -m venv venv
-source venv/bin/activate        # Linux/Mac
-venv\Scripts\activate           # Windows
+python -m venv bev_env
 ```
+
+Activate it:
+
+```bash
+# Linux / Mac
+source bev_env/bin/activate
+
+# Windows (Command Prompt)
+bev_env\Scripts\activate.bat
+
+# Windows (PowerShell)
+bev_env\Scripts\Activate.ps1
+```
+
+You should see `(bev_env)` prefixed in your terminal once active.
 
 ### 3. Install Dependencies
 
@@ -298,31 +303,32 @@ pip install -r requirements.txt
 python scripts/download_models.py
 ```
 
-### 5. Configure Camera Parameters
+### 5. Set Up the Dataset
 
-Edit `configs/config.yaml` with your camera's intrinsic values:
+Download the nuScenes dataset from the link below and extract it into `data/nuscenes/`:
 
-```yaml
-camera:
-  fx: 800.0         # focal length x (pixels)
-  fy: 800.0         # focal length y (pixels)
-  cx: 640.0         # principal point x
-  cy: 360.0         # principal point y
-  height: 1.2       # camera height above ground (metres)
+> 📁 **Dataset Drive Link:** *https://drive.google.com/drive/folders/1g5KgxG0p8-MmTiXkNtCpoYSIkdBQprEm*
 
-grid:
-  width_m: 20.0     # BEV map width in metres
-  height_m: 20.0    # BEV map height in metres
-  resolution: 0.1   # metres per cell (0.1 = 10cm)
-
-models:
-  yolo: yolov8n.pt  # nano=fastest, x=most accurate
-  depth: MiDaS_small
 ```
+data/
+└── nuscenes/          ← extract dataset contents here
+    ├── samples/
+    ├── sweeps/
+    ├── maps/
+    └── v1.0-*/
+```
+
+> ⚠️ Do **not** commit dataset files to the repository. They are git-ignored by default.
+
+### 6. Review Camera Parameters
+
+`configs/config.yaml` is already included in the repository. Open it and verify or update the values to match your setup:
 
 ---
 
 ## 🚀 Usage
+
+Make sure your `bev_env` virtual environment is active before running any commands.
 
 ### Run on a Single Image
 
@@ -330,28 +336,10 @@ models:
 python src/run.py --input data/raw/street.jpg --output outputs/
 ```
 
-### Run on a Video
-
-```bash
-python src/run.py --input data/raw/drive.mp4 --output outputs/ --mode video
-```
-
-### Run with Homography (Fast Mode)
-
-```bash
-python src/run.py --input data/raw/road.jpg --mode homography
-```
-
 ### Calibrate Your Camera
 
 ```bash
 python src/utils/calibration.py --images data/calibration/ --pattern 8x6
-```
-
-### Run Tests
-
-```bash
-pytest tests/ -v
 ```
 
 ---
@@ -415,24 +403,6 @@ plot_bev(grid, detections)
 
 ---
 
-## 📦 Dataset
-
-This project uses the **nuScenes** dataset provided by the organizers.
-
-> 📁 **Dataset Drive Link:** *https://drive.google.com/drive/folders/1g5KgxG0p8-MmTiXkNtCpoYSIkdBQprEm*
-
-Once downloaded, place the data as follows:
-
-```
-data/
-├── raw/          ← extract nuScenes samples here
-└── processed/    ← auto-generated after preprocessing
-```
-
-> ⚠️ Do **not** commit dataset files to the repository. They are git-ignored by default.
-
----
-
 ## 📚 References
 
 - [YOLOv8 — Ultralytics](https://github.com/ultralytics/ultralytics)
@@ -441,4 +411,3 @@ data/
 - Ranftl et al., *Towards Robust Monocular Depth Estimation*, TPAMI 2022
 
 ---
-
