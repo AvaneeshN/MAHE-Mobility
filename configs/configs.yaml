@@ -4,21 +4,21 @@ camera:
   cx: 816.2670196
   cy: 491.5075969
   height: 1.51
-
+ 
 grid:
-  size: 40.0
-  resolution: 0.1
-  height_thresh: 0.5
-
+  size: 40.0          # 40m forward — cars on nuScenes can be 25-35m away
+  resolution: 0.1     # 10cm per cell → 400×400 grid
+  height_thresh: 0.6  # ±0.6m around ground plane (slightly looser)
+ 
 models:
   yolo: yolov8n.pt
   depth: MiDaS_small
-
+ 
 nuscenes:
-  dataroot: "data/nuscenes"      # relative path — works on any machine
+  dataroot: "data/nuscenes"
   version: "v1.0-mini"
-
+ 
 depth:
   scale_factor: 20.0
-  min_depth: 1.0
-  max_depth: 50.0
+  min_depth: 0.5
+  max_depth: 40.0
