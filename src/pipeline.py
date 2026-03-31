@@ -9,7 +9,7 @@ from src.depth.estimator import DepthEstimator
 from src.geometry.camera import Camera
 from src.perception.detector import ObjectDetector
 from src.mapping.point_cloud import depth_to_point_cloud
-from src.mapping.occupancy_grid import OccupancyGrid, filter_ground
+from src.mapping.occupancy_grid import OccupancyGrid
 from src.data.nuscenes_loader import NuScenesLoader
 
 
@@ -20,7 +20,8 @@ def load_config(path="configs/configs.yaml"):
 
 def run_single_frame(image, camera, depth_estimator, detector, cfg):
     """
-    Full BEV pipeline for one image.
+    Fixed BEV pipeline - works in camera frame (X=right, Z=forward).
+    This version resolved the occupancy grid coordinate issues.
     Returns (bev_grid, depth_map, detections)
     """
 
@@ -30,51 +31,47 @@ def run_single_frame(image, camera, depth_estimator, detector, cfg):
     # 2. Object detection
     detections = detector.detect(image)
 
-    # 3. Point cloud from depth
+    # 3. Point cloud directly in camera frame
     points_cam = depth_to_point_cloud(depth, camera)
 
-    # 4. Transform to world frame (vectorized)
-    points_world = camera.camera_to_world(points_cam)
+    # 4. Filter points in camera frame (simple and effective)
+    # Camera frame: X = right (lateral), Y = down, Z = forward
+    mask = (points_cam[:, 2] > 1.0) & (points_cam[:, 2] < 40.0) & \
+           (np.abs(points_cam[:, 0]) < 20.0)
+    points_cam = points_cam[mask]
 
-    # 5. Filter to ground level using real camera height
-    cam_height = cfg["camera"]["height"]
-    thresh = cfg["grid"]["height_thresh"]
-    ground_pts = filter_ground(points_world, camera_height=cam_height, thresh=thresh)
-
-    # 6. Build occupancy grid
+    # 5. Build occupancy grid using camera-frame points (X-Z plane)
     grid_cfg = cfg["grid"]
     grid = OccupancyGrid(size=grid_cfg["size"], resolution=grid_cfg["resolution"])
-    grid.fill(ground_pts)
+    grid.fill(points_cam)           # ← Now using camera-frame points
     grid.smooth(kernel_size=5)
 
-    # 7. Overlay detected object positions onto grid
+    # 6. Overlay detected objects onto the grid
     for det in detections:
         x1, y1, x2, y2, label, conf = det
         if label not in ["car", "truck", "bus", "motorcycle", "person"]:
             continue
 
-        # Bottom-centre of bounding box = object's ground contact point
+        # Bottom-centre of bounding box ≈ ground contact point
         u = int((x1 + x2) / 2)
         v = int(y2)
         u = np.clip(u, 0, depth.shape[1] - 1)
         v = np.clip(v, 0, depth.shape[0] - 1)
 
-        Z = depth[v, u]
-        if Z <= 0 or Z > cfg["depth"]["max_depth"]:
+        Z = float(depth[v, u])
+        if Z <= 0 or Z > cfg["depth"].get("max_depth", 40.0):
             continue
 
-        pt3d = camera.unproject_pixel(u, v, Z)
-        pt_world = camera.camera_to_world(pt3d)
-        x, _, z = pt_world
+        # Unproject to camera coordinates (X, Z)
+        X = (u - camera.cx) * Z / camera.fx
 
-        col, row = grid.world_to_grid(
-            np.array([x]), np.array([z])
-        )
+        # Project onto grid (X lateral, Z forward)
+        col, row = grid.world_to_grid(np.array([X]), np.array([Z]))
         col, row = int(col[0]), int(row[0])
 
-        # Paint a 5x5 blob for each detected object
-        for dx in range(-2, 3):
-            for dy in range(-2, 3):
+        # Paint a small blob (7x7) for visibility
+        for dx in range(-3, 4):
+            for dy in range(-3, 4):
                 r, c = row + dy, col + dx
                 if 0 <= r < grid.N and 0 <= c < grid.N:
                     grid.grid[r, c] = 1.0
@@ -107,8 +104,8 @@ def visualize(image, depth, grid, detections, save_path=None):
     # Panel 3: BEV occupancy grid
     axes[2].imshow(grid.grid, cmap='inferno', origin='lower')
     axes[2].set_title("BEV Occupancy Grid (Top-Down)")
-    axes[2].set_xlabel("X (cells)")
-    axes[2].set_ylabel("Forward (cells)")
+    axes[2].set_xlabel("X (lateral)")
+    axes[2].set_ylabel("Z (forward)")
 
     plt.tight_layout()
     if save_path:
@@ -142,14 +139,12 @@ def main():
 
         image = sample["image"]
         K = sample["intrinsic"]
-        R = sample["rotation"]
-        t = sample["translation"]
 
-        # Build camera with REAL nuScenes calibration
+        # Simplified camera - only intrinsics needed (staying in camera frame)
         camera = Camera(
             fx=K[0, 0], fy=K[1, 1],
-            cx=K[0, 2], cy=K[1, 2],
-            R=R, t=t
+            cx=K[0, 2], cy=K[1, 2]
+            # R and t removed - we no longer transform to world frame
         )
 
         grid, depth, detections = run_single_frame(
